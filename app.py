@@ -99,5 +99,22 @@ def callback():
     <p>You may now return to Discord.</p>
     """
 
+@app.route("/stats")
+def stats():
+
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM verified_users"
+    )
+
+    count = cursor.fetchone()[0]
+
+    conn.close()
+
+    return f"Verified Users: {count}"
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
