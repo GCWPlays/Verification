@@ -1,22 +1,27 @@
 from flask import Flask, redirect, request
-from config import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI
+from config import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, DATABASE_URL
 
+import psycopg
 import requests
-import sqlite3
 
 app = Flask(__name__)
 
+def get_db():
+    return psycopg.connect(DATABASE_URL)
+
 def init_db():
-    conn = sqlite3.connect("database.db")
 
-    cursor = conn.cursor()
+    conn = get_db()
 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS verified_users (
-        user_id TEXT PRIMARY KEY,
-        refresh_token TEXT
-    )
-    """)
+    with conn.cursor() as cursor:
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS verified_users (
+            user_id TEXT PRIMARY KEY,
+            refresh_token TEXT NOT NULL,
+            verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
 
     conn.commit()
     conn.close()
@@ -48,27 +53,27 @@ def callback():
     if not code:
         return "No code received."
 
-    data = {
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": REDIRECT_URI
-    }
-
-    token = requests.post(
+    token_response = requests.post(
         "https://discord.com/api/oauth2/token",
-        data=data,
+        data={
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": REDIRECT_URI
+        },
         headers={
             "Content-Type": "application/x-www-form-urlencoded"
         }
-    ).json()
+    )
+
+    token = token_response.json()
 
     access_token = token.get("access_token")
     refresh_token = token.get("refresh_token")
 
     if not access_token:
-        return f"OAuth Error:<br><pre>{token}</pre>"
+        return f"OAuth Error: {token}"
 
     user = requests.get(
         "https://discord.com/api/users/@me",
@@ -79,17 +84,19 @@ def callback():
 
     user_id = user["id"]
 
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
+    conn = get_db()
 
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO verified_users
+    with conn.cursor() as cursor:
+
+        cursor.execute("""
+        INSERT INTO verified_users
         (user_id, refresh_token)
-        VALUES (?, ?)
+        VALUES (%s, %s)
+        ON CONFLICT (user_id)
+        DO UPDATE SET
+        refresh_token = EXCLUDED.refresh_token
         """,
-        (user_id, refresh_token)
-    )
+        (user_id, refresh_token))
 
     conn.commit()
     conn.close()
@@ -102,19 +109,19 @@ def callback():
 @app.route("/stats")
 def stats():
 
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
+    conn = get_db()
 
-    cursor.execute(
-        "SELECT COUNT(*) FROM verified_users"
-    )
+    with conn.cursor() as cursor:
 
-    count = cursor.fetchone()[0]
+        cursor.execute(
+            "SELECT COUNT(*) FROM verified_users"
+        )
+
+        count = cursor.fetchone()[0]
 
     conn.close()
 
     return f"Verified Users: {count}"
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
