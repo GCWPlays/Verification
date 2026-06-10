@@ -123,5 +123,23 @@ def stats():
 
     return f"Verified Users: {count}"
 
+@app.route("/debug")
+def debug():
+
+    conn = get_db()
+
+    with conn.cursor() as cursor:
+
+        cursor.execute("""
+            SELECT user_id, verified_at
+            FROM verified_users
+        """)
+
+        rows = cursor.fetchall()
+
+    conn.close()
+
+    return str(rows)
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
